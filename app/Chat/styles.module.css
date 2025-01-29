@@ -5,3 +5,23 @@
     box-shadow: 1px 1px 5px 1px rgba(0, 0, 0, 0.2);
     
 }
+
+    
+    
+
+
+.box{
+    color: rgb(128,128,239);
+    cursor:pointer;
+}
+.box:hover{
+    color:rgb(248,88,88);
+    background-color: rgb(213,212,212);
+    transform: scale(0.97);
+}
+
+.box:active{
+    color:rgb(248,88,88);
+    background-color: rgb(213,212,212);
+    transform: scale(0.97);
+}
