@@ -2,7 +2,11 @@
 import { Grid2 as Grid, TextField, Button } from '@mui/material';
 import Alert from '@mui/material/Alert';
 import { useState } from "react";
-import { signIn } from "next-auth/react";
+import { getSession, signIn } from "next-auth/react";
+import { useEffect } from "react";
+
+
+
 export default function Home() {
   
   const [user, setUser] = useState({
@@ -10,6 +14,17 @@ export default function Home() {
     password: ''
   });
   const [error,setError]=useState(null);
+  
+ // const session=getSession();
+
+ /* useEffect(()=>{
+    session.then(session=>{
+      if(session){
+        location.href="/Chat";
+      }
+    });
+  },[]); */
+
 
   function handleSubmit(e){
     e.preventDefault();
@@ -20,7 +35,7 @@ export default function Home() {
       username,password,redirect:false
     }).then((result)=>{
       if(result.ok){
-        alert("Login Success");
+        location.href="/Chat";
       }
       else if(result.error){
         console.log(result.error);
