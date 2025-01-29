@@ -1,7 +1,6 @@
 "use client";
 import { Grid2 as Grid, TextField, Button } from '@mui/material';
 import { useState } from "react";
-
 import { loginRequest } from "./request/loginRequest";
 
 export default function Home() {
@@ -13,7 +12,18 @@ export default function Home() {
 
   function loginButtonClicked(){
      console.log(user);
-     
+     loginRequest(user).then((response)=>{
+      if(response.data.success){
+        localStorage.setItem("token",response.data.data);
+        alert("Login Success");
+        window.location.href = "/chat";
+      }else{
+        alert("Invalid username or password // Login Failed");
+      }
+     }).catch((error)=>{
+      alert("Login Failed");
+     })
+      
   }
 
   
