@@ -39,3 +39,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Ortam değişkenleri
+.env
+.env.local
+.env.*.local

@@ -1,83 +1,84 @@
 "use client";
 import { Grid2 as Grid, TextField, Button } from '@mui/material';
+import Alert from '@mui/material/Alert';
 import { useState } from "react";
-import { loginRequest } from "./request/loginRequest";
-
+import { signIn } from "next-auth/react";
 export default function Home() {
   
   const [user, setUser] = useState({
     username: '',
     password: ''
   });
+  const [error,setError]=useState(null);
 
-  function loginButtonClicked(){
-     console.log(user);
-     loginRequest(user).then((response)=>{
-      if(response.data.success){
-        localStorage.setItem("token",response.data.data);
+  function handleSubmit(e){
+    e.preventDefault();
+    const username=e.currentTarget.username.value;
+    const password=e.currentTarget.password.value;
+    
+    signIn("credentials",{
+      username,password,redirect:false
+    }).then((result)=>{
+      if(result.ok){
         alert("Login Success");
-        window.location.href = "/chat";
-      }else{
-        alert("Invalid username or password // Login Failed");
       }
-     }).catch((error)=>{
-      alert("Login Failed");
-     })
-      
+      else if(result.error){
+        console.log(result.error);
+        setError(result.error);
+      }
+    });
   }
 
-  
-
   return (
-    <Grid 
-      height="100vh"
-      width="100vw"
-      container
-      direction="column"
-      justifyContent="center" 
-      alignItems="center"
-    >
-      <Grid  xs={3}>
-        <h1>Chat App Login Page</h1>
-      </Grid>
-      
-      <Grid  container direction="column" spacing={2} maxWidth="300px">
-        <Grid >
+    <form onSubmit={handleSubmit}>
+      <Grid
+        height="100vh"
+        direction="column"
+        container
+        justifyContent="center"
+        alignItems="center"
+        rowGap={2}
+      >
+        
+        <Grid xs={3}>
+          <h1>Chat App Login Page</h1>
+        </Grid>
+        <Grid xs={3}>
           <TextField
             fullWidth
-            id="username-field"
+            id="outlined-basic"
             label="Username"
             variant="outlined"
-            value={user.username}
             name="username"
-            onChange={e=>setUser({...user,username:e.target.value})}
           />
         </Grid>
-        
-        <Grid >
+        <Grid xs={3}>
           <TextField
             fullWidth
-            id="password-field"
-            type="password"
+            id="outlined-basic"
             label="Password"
             variant="outlined"
-            value={user.password}
+            type="password"
             name="password"
-            onChange={e=>setUser({...user,password:e.target.value})}
           />
         </Grid>
+        {error &&<Grid xs={3}>
+        <Alert severity="error">{error}</Alert>
+        </Grid>}
         
-        <Grid >
-          <Button 
-            fullWidth 
-            variant="contained" 
+        <Grid xs={3}>
+          <Button
+            variant="contained"
             color="primary"
-            onClick={loginButtonClicked}
+            label="Log In"
+            fullWidth
+            type="submit"
           >
-            Login
+            Log In
           </Button>
+          <a href="/register">Register</a>
         </Grid>
       </Grid>
-    </Grid>
+    </form>
   );
 }
