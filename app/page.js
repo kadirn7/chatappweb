@@ -5,23 +5,18 @@ import { useState } from "react";
 import { loginRequest } from "./request/loginRequest";
 
 export default function Home() {
-  const[user,setUser]=useState({
+  
+  const [user, setUser] = useState({
     username: '',
     password: ''
   });
 
-  function handleChange(e) {
-    setUser({
-      ...user,
-      [e.target.name]: e.target.value
-    });
+  function loginButtonClicked(){
+     console.log(user);
+     
   }
 
-  function loginButtonClicked(){
-    loginRequest(user).then((response)=>{
-      console.log(response);
-    })
-  }
+  
 
   return (
     <Grid 
@@ -32,35 +27,37 @@ export default function Home() {
       justifyContent="center" 
       alignItems="center"
     >
-      <Grid item mb={4}>
+      <Grid  xs={3}>
         <h1>Chat App Login Page</h1>
       </Grid>
       
-      <Grid item container direction="column" spacing={2} maxWidth="300px">
-        <Grid item>
+      <Grid  container direction="column" spacing={2} maxWidth="300px">
+        <Grid >
           <TextField
             fullWidth
-            name="username"
+            id="username-field"
             label="Username"
             variant="outlined"
             value={user.username}
-            onChange={handleChange}
+            name="username"
+            onChange={e=>setUser({...user,username:e.target.value})}
           />
         </Grid>
         
-        <Grid item>
+        <Grid >
           <TextField
             fullWidth
-            name="password"
+            id="password-field"
             type="password"
             label="Password"
             variant="outlined"
             value={user.password}
-            onChange={handleChange}
+            name="password"
+            onChange={e=>setUser({...user,password:e.target.value})}
           />
         </Grid>
         
-        <Grid item>
+        <Grid >
           <Button 
             fullWidth 
             variant="contained" 
