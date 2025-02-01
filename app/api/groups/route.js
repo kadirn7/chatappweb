@@ -12,7 +12,7 @@ export async function GET(req) {
     }
 
     try {
-        const apiUrl = `${process.env.API_URL}/User${searchName ? `?name=${searchName}` : ''}`;
+        const apiUrl = `${process.env.API_URL}/Group${searchName ? `?name=${searchName}` : ''}`;
         
         const result = await fetch(apiUrl, {
             method: 'GET',
@@ -23,9 +23,8 @@ export async function GET(req) {
         });
 
         if (!result.ok) {
-            const errorData = await result.json();
             return NextResponse.json(
-                { error: errorData.message || "Failed to fetch users" },
+                { error: "Failed to fetch groups" },
                 { status: result.status }
             );
         }
@@ -34,7 +33,7 @@ export async function GET(req) {
         return NextResponse.json(data);
 
     } catch (error) {
-        console.error("Error fetching users:", error);
+        console.error("Error fetching groups:", error);
         return NextResponse.json({ error: "An error occurred" }, { status: 500 });
     }
-}
+} 

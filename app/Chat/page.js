@@ -1,185 +1,339 @@
 "use client";
 import Grid from "@mui/material/Unstable_Grid2";
-import { getSession, signOut } from "next-auth/react";
+import { getSession, useSession, signOut } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { HubConnectionBuilder } from "@microsoft/signalr";
 import styles from "./styles.module.css";
 import {
-  Autocomplete,
-  Divider,
-  Stack,
-  TextField,
-  Box,
-  AppBar,
-  Toolbar,
-  Typography,
-  IconButton,
-  Menu,
-  MenuItem,
-  Button,
+    Autocomplete,
+    Divider,
+    Stack,
+    TextField,
+    Box,
+    AppBar,
+    Toolbar,
+    Typography,
+    IconButton,
+    Menu,
+    MenuItem,
+    Button,
 } from "@mui/material";
 import { AccountCircle } from "@mui/icons-material";
 import { useAppDispatch, useAppSelector } from "@/lib/store";
 import { setChatHistory } from "@/lib/features/useSlice";
+
 export default function Page() {
-  const session = getSession();
-  const [searchedUsersAndGroups, setSearchedUsersAndGroups] = useState([]);
-  const [usersAndGroups, setUsersAndGroups] = useState([]);
-  const [anchorEl, setAnchorEl] = useState(null);
-  const [connection, setConnection] = useState(null);
-  const [connectedUser, setConnectedUser] = useState(null);
-  const [selectedUser, setSelectedUser] = useState(null);
+    const [session, setSession] = useState(null);
+    const [searchedUsersAndGroups, setSearchedUsersAndGroups] = useState([]);
+    const [usersAndGroups, setUsersAndGroups] = useState([]);
+    const [anchorEl, setAnchorEl] = useState(null);
+    const [connection, setConnection] = useState(null);
+    const [connectedUser, setConnectedUser] = useState(null);
+    const [selectedUser, setSelectedUser] = useState(null);
+    const [message, setMessage] = useState("");
 
-  const [message, setMessage] = useState("");
+    const dispatch = useAppDispatch();
+    const chatHistoryState = useAppSelector((state) => state.chatHistory);
 
-  //Redux
-  const dispatch = useAppDispatch();
-  const chatHistoryState = useAppSelector((state) => state.chatHistory);
+    const checkAndSetSession = async () => {
+        try {
+            const sess = await getSession();
+            console.log("Current session:", sess); // Debug için
 
-  function startConnection(apiToken) {
-    const connection = new HubConnectionBuilder()
-      .withUrl("http://localhost:5246/chathub", {
-        accessTokenFactory: () => apiToken,
-      })
-      .build();
+            if (!sess?.user?.apiToken) {
+                console.log("No valid session found");
+                window.location.href = "/login";
+                return false;
+            }
 
-    connection
-      .start()
-      .then(() => {
-        console.log(
-          "Connection started! Connection:" + connection.connectionId
-        );
-        setConnection(connection);
-      })
-      .catch((err) => console.error("Hata...." + err));
+            setSession(sess);
+            setConnectedUser(sess.user);
+            return true;
+        } catch (error) {
+            console.error("Session check error:", error);
+            window.location.href = "/login";
+            return false;
+        }
+    };
 
-    connection.on("ReceiveMessageFromAll", (user, message) => {
-      console.log(`Message from All:${message}`);
-    });
-    connection.on("ReceiveMessageFromUser", (user, message) => {
-      const lsUsername = localStorage.getItem("username");
-      if (lsUsername === user) {
-        //chatHistoryState doldur.
-        dispatch(
-          setChatHistory([{
-            id: chatHistoryState.length + 1,
-            type: "R",
-            name: message,
-          }])
-        );
-      }
-      console.log(`Message from User:${user}:${message}`);
-    });
-    connection.on("ReceiveMessageFromGroup", (user, message) => {
-      console.log(`Message from Group:${user}:${message}`);
-    });
-    connection.onclose(() => {
-      console.log("Connection Closed");
-    });
-  }
-  useEffect(() => {
-    session.then((s) => {
-      if (s) {
-        //console.log(s);
-        setConnectedUser(s.user);
-        startConnection(s.user.apiToken);
-      } else {
-        location.href = "/";
-      }
-    });
-    //TODO: Veritabanından çekilecek.
-    setSearchedUsersAndGroups([
-      { label: "Fatih", value: 1, type: "U" },
-      { label: "AileGrubu", value: 2, type: "G" },
-    ]);
-  }, []);
-  function autoCompleteOnChanged(e, value) {
-    //console.log("autoCC", value);
-    //TODO: Daha önce eklenmiş ise tekrar eklenmesin.
-    if (value) {
-      setUsersAndGroups([
-        ...usersAndGroups,
-        {
-          id: value.value,
-          name: value.label,
-          type: value.type,
-          isActive: true,
-          username: value.username,
-        },
-      ]);
+    useEffect(() => {
+        const initialize = async () => {
+            const hasValidSession = await checkAndSetSession();
+            if (hasValidSession && session?.user?.apiToken) {
+                startConnection(session.user.apiToken);
+            }
+        };
+
+        initialize();
+    }, []);
+
+    useEffect(() => {
+        if (session?.user?.apiToken) {
+            console.log("Session is valid, fetching users and groups");
+            fetchUsersAndGroups();
+        }
+    }, [session]);
+
+    function startConnection(apiToken) {
+        if (!apiToken) return;
+
+        const newConnection = new HubConnectionBuilder()
+            .withUrl("https://localhost:7184/chathub", {
+                accessTokenFactory: () => apiToken,
+                withCredentials: false,
+            })
+            .withAutomaticReconnect()
+            .build();
+
+        newConnection
+            .start()
+            .then(() => {
+                console.log("Connection started! Connection ID:", newConnection.connectionId);
+                setConnection(newConnection);
+            })
+            .catch((err) => {
+                console.error("Connection error:", err);
+                alert("Chat bağlantısı kurulamadı. Lütfen sayfayı yenileyin.");
+            });
+
+        newConnection.onclose((error) => {
+            console.log("Connection closed", error);
+            setConnection(null);
+        });
+
+        newConnection.on("ReceiveMessageFromAll", (user, message) => {
+            console.log(`Message from All: ${message}`);
+        });
+
+        newConnection.on("ReceiveMessageFromUser", (user, message) => {
+            if (user === session?.user?.username) {
+                dispatch(
+                    setChatHistory([{
+                        id: chatHistoryState.length + 1,
+                        type: "R",
+                        name: message,
+                    }])
+                );
+            }
+        });
+
+        newConnection.on("ReceiveMessageFromGroup", (user, message) => {
+            console.log(`Message from Group: ${user}: ${message}`);
+        });
     }
-  }
-  async function searchChanged(e) {
-    const value = e.target.value;
-    await fetch(`/api/users?name=${value}`)
-      .then((res) => res.json())
-      .then((data) => setSearchedUsersAndGroups(data))
-      .catch((err) => console.error(err));
-    //setSearchedUsersAndGroups([{label:"Fatih", value:1, type:"U"}, {label:"AileGrubu", value:2, type:"G"}]);
-  }
-  function boxClicked(item) {
-    dispatch(
-      setChatHistory({
-        type: "Reset",
-      })
-    );
-    const newUsersAndGroups = usersAndGroups.map((x) => {
-      if (x.id === item.id) {
-        x.isActive = true;
-      } else {
-        x.isActive = false;
-      }
-      return x;
-    });
-    setSelectedUser(item);
-    setUsersAndGroups(newUsersAndGroups);
-    //console.log("Selected User", item);
 
-    //* ChatHistory
-    const isPrivateChat = item.type === "U";
-    fetch(`/api/message?receiverUsername=${item.username}&isPrivateChat=${isPrivateChat}`)
-      .then((res) => res.json())
-      .then((data) => {
-        dispatch(setChatHistory(data));
-      }).catch((err) => console.error(err));
+    const fetchUsersAndGroups = async (searchTerm = "") => {
+        if (!session?.user?.apiToken) {
+            console.log("No valid session for fetch:", session); // Debug için
+            return;
+        }
 
-    localStorage.setItem("username", item.username);
-  }
-  function handleMenu(e) {
-    setAnchorEl(e.currentTarget);
-  }
-  function handleClose() {
-    setAnchorEl(null);
-  }
-  function handleExit(e) {
-    signOut({ callbackUrl: "/", redirect: true });
-  }
-  function testMessageHandler() {
-    connection
-      .invoke("SendMessageToUser", "mehmet.baytar", "Merhaba Fatih")
-      .then(() => console.log("Message Sent!"))
-      .catch((err) => console.error(err));
-  }
-  function messageSendHandler() {
-    // console.log("SelectedUser", selectedUser);
-    // console.log("Message", message);
-    if (!selectedUser) return;
-    const user = selectedUser?.username;
-    connection
-      .invoke("SendMessageToUser", user, message)
-      .then((r) => {
-        console.log("chatHistoryState", chatHistoryState)
-        dispatch(
-          setChatHistory([{
-            id: chatHistoryState.length + 1,
-            type: "S",
-            name: message,
-          }])
-        );
-      })
-      .catch((err) => console.error(err));
-    setMessage("");
-  }
+        try {
+            const headers = {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${session.user.apiToken}`
+            };
+
+            const [usersRes, groupsRes] = await Promise.all([
+                fetch(`/api/users?name=${searchTerm}`, { headers }),
+                fetch(`/api/groups?name=${searchTerm}`, { headers })
+            ]);
+
+            if (!usersRes.ok || !groupsRes.ok) {
+                throw new Error("Failed to fetch users or groups");
+            }
+
+            const [usersData, groupsData] = await Promise.all([
+                usersRes.json(),
+                groupsRes.json()
+            ]);
+
+            // Debug için
+            console.log("Users data:", usersData);
+            console.log("Groups data:", groupsData);
+
+            const userOptions = (usersData.data || []).map(user => ({
+                label: user.name || user.username,
+                value: user.id,
+                type: "U",
+                username: user.username,
+                key: `user_${user.id}`
+            }));
+
+            const groupOptions = (groupsData.data || []).map(group => ({
+                label: group.name,
+                value: group.id,
+                type: "G",
+                username: group.name,
+                key: `group_${group.id}`
+            }));
+
+            setSearchedUsersAndGroups([...userOptions, ...groupOptions]);
+        } catch (err) {
+            console.error('Error fetching users and groups:', err);
+            alert("Kullanıcılar ve gruplar yüklenirken bir hata oluştu");
+        }
+    };
+
+    function autoCompleteOnChanged(e, value) {
+        if (value) {
+            const isUserExists = usersAndGroups.some(user => user.id === value.value);
+
+            if (!isUserExists) {
+                setUsersAndGroups(prev => [
+                    ...prev,
+                    {
+                        id: value.value,
+                        name: value.label,
+                        type: value.type,
+                        isActive: true,
+                        username: value.username,
+                        key: value.key
+                    }
+                ]);
+
+                boxClicked({
+                    id: value.value,
+                    username: value.username,
+                    type: value.type
+                });
+            }
+        }
+    }
+
+    const [searchTimeout, setSearchTimeout] = useState(null);
+
+    function searchChanged(e) {
+        const value = e.target.value;
+        
+        if (searchTimeout) {
+            clearTimeout(searchTimeout);
+        }
+
+        const newTimeout = setTimeout(() => {
+            fetchUsersAndGroups(value);
+        }, 300);
+
+        setSearchTimeout(newTimeout);
+    }
+
+    async function boxClicked(item) {
+        try {
+            if (!session?.user?.apiToken) {
+                throw new Error("No session available");
+            }
+
+            dispatch(setChatHistory({ type: "Reset" }));
+
+            const newUsersAndGroups = usersAndGroups.map((x) => ({
+                ...x,
+                isActive: x.id === item.id
+            }));
+
+            setSelectedUser(item);
+            setUsersAndGroups(newUsersAndGroups);
+
+            let url = '/api/message?';
+            if (item.type === "G") {
+                url += `groupName=${encodeURIComponent(item.username)}`;
+            } else {
+                url += `receiverUsername=${encodeURIComponent(item.username)}`;
+            }
+
+            const response = await fetch(url, {
+                headers: {
+                    "Authorization": `Bearer ${session.user.apiToken}`
+                }
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Failed to fetch messages');
+            }
+
+            const messages = await response.json();
+            dispatch(setChatHistory(messages));
+            localStorage.setItem("username", item.username);
+        } catch (error) {
+            console.error('Error in boxClicked:', error);
+            alert(error.message || "Mesajlar yüklenirken bir hata oluştu");
+        }
+    }
+
+    function handleMenu(e) {
+        setAnchorEl(e.currentTarget);
+    }
+
+    function handleClose() {
+        setAnchorEl(null);
+    }
+
+    async function handleExit() {
+        try {
+            await signOut({ callbackUrl: "/login" });
+        } catch (error) {
+            console.error("Logout error:", error);
+            window.location.href = "/login";
+        }
+    }
+
+    function testMessageHandler() {
+        connection
+            .invoke("SendMessageToUser", "mehmet.baytar", "Merhaba Fatih")
+            .then(() => console.log("Message Sent!"))
+            .catch((err) => console.error(err));
+    }
+
+    async function messageSendHandler() {
+        if (!selectedUser || !message.trim()) return;
+        
+        try {
+            // API üzerinden mesajı veritabanına kaydetme
+            const response = await fetch('/api/message', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    content: message,
+                    ...(selectedUser.type === "G" 
+                        ? { groupName: selectedUser.username }
+                        : { receiverUsername: selectedUser.username }
+                    )
+                })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Failed to save message');
+            }
+
+            // SignalR üzerinden real-time mesaj gönderme
+            if (selectedUser.type === "G") {
+                await connection.invoke("SendMessageToGroup", selectedUser.username, message);
+            } else {
+                await connection.invoke("SendMessageToUser", selectedUser.username, message);
+            }
+
+            // UI'ı güncelle
+            dispatch(
+                setChatHistory([{
+                    id: chatHistoryState.length + 1,
+                    type: selectedUser.type === "G" ? "G" : "S",
+                    name: message,
+                    sender: connectedUser.username,
+                    receiver: selectedUser.username
+                }])
+            );
+            
+            setMessage("");
+        } catch (err) {
+            console.error("Error sending message:", err);
+            // Kullanıcıya hata göster
+            alert(err.message || "Mesaj gönderilirken bir hata oluştu");
+        }
+    }
+    
   return (
     <Grid container height={"100vh"}>
       <Grid xs={3} borderRadius={1} className={styles.leftPanelGrid}>
@@ -190,12 +344,19 @@ export default function Page() {
             options={searchedUsersAndGroups}
             fullWidth
             onChange={autoCompleteOnChanged}
+            getOptionLabel={(option) => option.label}
+            isOptionEqualToValue={(option, value) => option.value === value.value}
+            renderOption={(props, option) => (
+                <li {...props} key={option.key}>
+                    {option.type === "U" ? "👤" : "👥"} {option.label}
+                </li>
+            )}
             renderInput={(params) => (
-              <TextField
-                {...params}
-                label="Users and Groups"
-                onChange={searchChanged}
-              />
+                <TextField
+                    {...params}
+                    label="Kullanıcı ve Grup Ara"
+                    onChange={searchChanged}
+                />
             )}
           />
         </Grid>
@@ -217,7 +378,7 @@ export default function Page() {
               onClick={() => boxClicked(item)}
             >
               <Stack spacing={2} direction="row">
-                <h3>{item.type}</h3>
+                <h3>{item.type === "U" ? "👤" : "👥"}</h3>
                 <h4>{item.name}</h4>
               </Stack>
             </Box>
@@ -274,6 +435,9 @@ export default function Page() {
                     >
                       <h3>{item.type}</h3>
                       <h4>{item.name}</h4>
+                      {selectedUser.type === "G" && (
+                        <small>{item.sender}</small>
+                      )}
                     </Stack>
                   </Box>
                 ))}

@@ -17,41 +17,43 @@ export default function Page() {
     }
   }, [shouldRedirect]);
 
-  function handleSubmit(e) {
-    e.preventDefault();
+ handleSubmit(e =>{
+  
+  e.preventDefault();
 
-    const username = e.currentTarget.username.value;
-    const password = e.currentTarget.password.value;
-    const passwordAgain = e.currentTarget.passwordAgain.value;
-    const email = e.currentTarget.email.value;
-    const fullName = e.currentTarget.fullName.value;
-    setError("");
-    setSuccess("");
-    if (password !== passwordAgain) {
-      setError("Passwords are not the same");
-      return;
-    }
-    fetch("/api/users", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        username, password, email, fullName
-      }),
-    }).then(response => {
-      return response.json();
-    }).then(data => {
-      if (data && (data.statusCode === 201 || data.statusCode === 200)) {
-        setSuccess("User registered successfully!");
-        setShouldRedirect(true);
-      } else {
-        setError(data.message || "Registration failed");
-      }
-    }).catch(error => {
-      setError(error.message || "An error occurred during registration");
-    });
+  const username = e.currentTarget.username.value;
+  const password = e.currentTarget.password.value;
+  const passwordAgain = e.currentTarget.passwordAgain.value;
+  const email = e.currentTarget.email.value;
+  const fullName = e.currentTarget.fullName.value;
+  setError("");
+  setSuccess("");
+  if (password !== passwordAgain) {
+    setError("Passwords are not the same");
+    return;
   }
+  fetch("/api/users", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      username, password, email, fullName
+    }),
+  }).then(response => {
+    return response.json();
+  }).then(data => {
+    if (data && (data.statusCode === 201 || data.statusCode === 200)) {
+      setSuccess("User registered successfully!");
+      setShouldRedirect(true);
+    } else {
+      setError(data.message || "Registration failed");
+    }
+  }).catch(error => {
+    setError(error.message || "An error occurred during registration");
+  });
+}) 
+  
   return (
     <form onSubmit={handleSubmit}>
       <Grid

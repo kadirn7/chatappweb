@@ -2,7 +2,6 @@
 import Grid from "@mui/material/Unstable_Grid2";
 import { Button, TextField, Alert } from "@mui/material";
 import { useEffect, useState } from "react";
-import { loginRequest } from "@/requests/loginRequest";
 import { getSession, signIn } from "next-auth/react";
 import Link from "next/link";
 

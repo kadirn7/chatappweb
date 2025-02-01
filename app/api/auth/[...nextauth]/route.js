@@ -12,56 +12,66 @@ export const authOptions = {
                 password: { label: "Password", type: "password", placeholder: "Password" }
             },
             async authorize(credentials, req) {
-                const url = `${process.env["API_URL"]}/Auth/Login`;
-                const user = { id: 0, name: "Kadir Pasaoglu" };
-
-                const axiosInstance = axios.create({
-                    httpsAgent: new https.Agent({
-                        rejectUnauthorized: false // Geliştirme ortamında self-signed sertifikaları kabul et
-                    })
-                });
-
                 try {
-                    const response = await axiosInstance.post(url, {
+                    const axiosInstance = axios.create({
+                        httpsAgent: new https.Agent({
+                            rejectUnauthorized: false
+                        })
+                    });
+
+                    const response = await axiosInstance.post(`${process.env.API_URL}/Auth/Login`, {
                         username: credentials.username,
                         password: credentials.password
                     });
+
                     if (response.data.statusCode === 200) {
-                        user.apiToken = response.data.data;
-                        user.username = credentials.username;
-                        return user;
+                        return {
+                            id: 1, // Veya API'den gelen gerçek ID
+                            name: credentials.username,
+                            username: credentials.username,
+                            apiToken: response.data.data
+                        };
                     }
-                    else {
-                        throw new Error("Giriş bilgilerinde problem var....");
-                    }
+                    
+                    throw new Error("Giriş bilgilerinde problem var....");
                 }
                 catch (error) {
-                    throw new Error(error);
+                    console.error("Login error:", error);
+                    throw new Error("Giriş sırasında bir hata oluştu");
                 }
             }
         })
     ],
-    // session: {
-    //     jwt: true,
-    //     maxAge: 30 * 24 * 60 * 60, //30 gün
-    // },
     callbacks: {
-        async jwt({ token, user }) {
+        async jwt({ token, user, account }) {
             if (user) {
-                token.id = user.id;
-                token.apiToken = user.apiToken;
-                token.username = user.username;
+                token.user = {
+                    id: user.id,
+                    name: user.name,
+                    username: user.username,
+                    apiToken: user.apiToken
+                };
             }
             return token;
         },
         async session({ session, token }) {
-            session.user.id = token.id;
-            session.user.apiToken = token.apiToken;
-            session.user.username = token.username;
+            if (token?.user) {
+                session.user = token.user;
+            }
             return session;
         }
-    }
-}
-const handler = NextAuth(authOptions)
+    },
+    pages: {
+        signIn: '/login',
+        error: '/login'
+    },
+    session: {
+        strategy: "jwt",
+        maxAge: 30 * 24 * 60 * 60 // 30 days
+    },
+    secret: process.env.NEXTAUTH_SECRET,
+    debug: process.env.NODE_ENV === 'development'
+};
 
-export { handler as GET, handler as POST }
+const handler = NextAuth(authOptions);
+export { handler as GET, handler as POST };
