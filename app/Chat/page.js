@@ -1,26 +1,97 @@
 "use client";
-import Grid from "@mui/material/Unstable_Grid2";
-import { getSession, useSession, signOut } from "next-auth/react";
-import { useEffect, useState } from "react";
+import { useState, useEffect, useRef } from "react";
+import { getSession, signOut } from "next-auth/react";
 import { HubConnectionBuilder } from "@microsoft/signalr";
-import styles from "./styles.module.css";
-import {
-    Autocomplete,
-    Divider,
-    Stack,
-    TextField,
-    Box,
-    AppBar,
-    Toolbar,
-    Typography,
-    IconButton,
-    Menu,
-    MenuItem,
-    Button,
-} from "@mui/material";
-import { AccountCircle } from "@mui/icons-material";
 import { useAppDispatch, useAppSelector } from "@/lib/store";
 import { setChatHistory } from "@/lib/features/useSlice";
+import {
+    Box,
+    Container,
+    Grid,
+    Paper,
+    TextField,
+    IconButton,
+    Typography,
+    AppBar,
+    Toolbar,
+    Avatar,
+    List,
+    ListItem,
+    ListItemAvatar,
+    ListItemText,
+    Divider,
+    InputAdornment,
+    Autocomplete,
+    Badge,
+    Menu,
+    MenuItem,
+    Tooltip,
+} from "@mui/material";
+import {
+    Send as SendIcon,
+    Search as SearchIcon,
+    ExitToApp as LogoutIcon,
+    Person as PersonIcon,
+    Group as GroupIcon,
+    Settings as SettingsIcon,
+} from "@mui/icons-material";
+import { styled } from "@mui/material/styles";
+import { ThemeProvider } from '@mui/material/styles';
+import { darkTheme } from '../theme';
+
+// Özel stil bileşenleri
+const ChatContainer = styled(Paper)(({ theme }) => ({
+    height: "calc(100vh - 140px)",
+    display: "flex",
+    flexDirection: "column",
+    backgroundColor: theme.palette.background.chat,
+}));
+
+const MessageList = styled(Box)(({ theme }) => ({
+    flexGrow: 1,
+    overflow: "auto",
+    padding: theme.spacing(2),
+    backgroundColor: '#121212',
+    '&::-webkit-scrollbar': {
+        width: '6px',
+    },
+    '&::-webkit-scrollbar-track': {
+        background: 'transparent',
+    },
+    '&::-webkit-scrollbar-thumb': {
+        background: 'rgba(255, 255, 255, 0.1)',
+        borderRadius: '3px',
+    },
+}));
+
+const MessageBubble = styled(Paper)(({ theme, isOwn }) => ({
+    padding: theme.spacing(1.5, 2),
+    marginBottom: theme.spacing(1),
+    maxWidth: "70%",
+    wordWrap: "break-word",
+    backgroundColor: isOwn ? '#0B93F6' : theme.palette.background.paper,
+    color: isOwn ? '#fff' : theme.palette.text.primary,
+    alignSelf: isOwn ? "flex-end" : "flex-start",
+    borderRadius: isOwn ? '1.3em' : '1.3em',
+    boxShadow: 'none',
+    '&:first-of-type': {
+        borderTopRightRadius: isOwn ? '1.3em' : '1.3em',
+        borderTopLeftRadius: '1.3em',
+    },
+    '&:last-of-type': {
+        borderBottomRightRadius: '1.3em',
+        borderBottomLeftRadius: isOwn ? '1.3em' : '1.3em',
+    },
+}));
+
+const UserListItem = styled(ListItem)(({ theme, isActive }) => ({
+    marginBottom: theme.spacing(0.5),
+    borderRadius: theme.spacing(1),
+    backgroundColor: isActive ? 'rgba(33, 150, 243, 0.15)' : 'transparent',
+    '&:hover': {
+        backgroundColor: 'rgba(33, 150, 243, 0.1)',
+    },
+}));
 
 export default function Page() {
     const [session, setSession] = useState(null);
@@ -35,13 +106,22 @@ export default function Page() {
     const dispatch = useAppDispatch();
     const chatHistoryState = useAppSelector((state) => state.chatHistory);
 
+    const messagesEndRef = useRef(null);
+    const scrollToBottom = () => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    };
+
+    useEffect(() => {
+        scrollToBottom();
+    }, [chatHistoryState]);
+
     const checkAndSetSession = async () => {
         try {
             const sess = await getSession();
             console.log("Current session:", sess); // Debug için
 
-            if (!sess?.user?.apiToken) {
-                console.log("No valid session found");
+            if (!sess || !sess.user?.apiToken) {
+                console.log("No valid session found, redirecting to login");
                 window.location.href = "/login";
                 return false;
             }
@@ -51,7 +131,6 @@ export default function Page() {
             return true;
         } catch (error) {
             console.error("Session check error:", error);
-            window.location.href = "/login";
             return false;
         }
     };
@@ -59,7 +138,7 @@ export default function Page() {
     useEffect(() => {
         const initialize = async () => {
             const hasValidSession = await checkAndSetSession();
-            if (hasValidSession && session?.user?.apiToken) {
+            if (hasValidSession) {
                 startConnection(session.user.apiToken);
             }
         };
@@ -284,202 +363,260 @@ export default function Page() {
             .catch((err) => console.error(err));
     }
 
+    // Mesaj içeriğini ayıklama fonksiyonu
+    const extractMessageContent = (fullMessage) => {
+        // Mesajı ve tarih/saat bilgisini ayır
+        const parts = fullMessage.split(' ');
+        // Sadece mesaj içeriğini döndür (son parçayı at)
+        return parts.slice(0, -1).join(' ');
+    };
+
     async function messageSendHandler() {
         if (!selectedUser || !message.trim()) return;
         
         try {
             // API üzerinden mesajı veritabanına kaydetme
+            const messageData = {
+                content: message,
+                senderUsername: connectedUser.username,
+                receiverUsername: selectedUser.type === "G" ? null : selectedUser.username,
+                groupId: selectedUser.type === "G" ? selectedUser.value : null,
+                messageType: selectedUser.type === "G" ? "G" : "P"
+            };
+
+            console.log("Sending message data:", messageData); // Debug için
+
             const response = await fetch('/api/message', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${session?.user?.apiToken}`
                 },
-                body: JSON.stringify({
-                    content: message,
-                    ...(selectedUser.type === "G" 
-                        ? { groupName: selectedUser.username }
-                        : { receiverUsername: selectedUser.username }
-                    )
-                })
+                body: JSON.stringify(messageData)
             });
 
             if (!response.ok) {
                 const errorData = await response.json();
-                throw new Error(errorData.error || 'Failed to save message');
+                console.error("API Error:", errorData);
+                throw new Error(errorData.error || 'Mesaj gönderilemedi');
             }
 
             // SignalR üzerinden real-time mesaj gönderme
-            if (selectedUser.type === "G") {
-                await connection.invoke("SendMessageToGroup", selectedUser.username, message);
-            } else {
-                await connection.invoke("SendMessageToUser", selectedUser.username, message);
+            try {
+                if (selectedUser.type === "G") {
+                    await connection.invoke("SendMessageToGroup", selectedUser.username, message);
+                } else {
+                    await connection.invoke("SendMessageToUser", selectedUser.username, message);
+                }
+            } catch (signalRError) {
+                console.error("SignalR Error:", signalRError);
+                // SignalR hatası olsa bile devam et
             }
 
-            // UI'ı güncelle
-            dispatch(
-                setChatHistory([{
-                    id: chatHistoryState.length + 1,
-                    type: selectedUser.type === "G" ? "G" : "S",
-                    name: message,
-                    sender: connectedUser.username,
-                    receiver: selectedUser.username
-                }])
-            );
-            
+            // UI güncelleme
+            const newMessage = {
+                id: chatHistoryState.length + 1,
+                type: "S",
+                name: message, // Sadece mesaj içeriği
+                sender: connectedUser.username,
+                receiver: selectedUser.username
+            };
+
+            dispatch(setChatHistory([...chatHistoryState, newMessage]));
             setMessage("");
+
         } catch (err) {
             console.error("Error sending message:", err);
-            // Kullanıcıya hata göster
             alert(err.message || "Mesaj gönderilirken bir hata oluştu");
         }
     }
     
-  return (
-    <Grid container height={"100vh"}>
-      <Grid xs={3} borderRadius={1} className={styles.leftPanelGrid}>
-        <Grid margin={1}>
-          <Autocomplete
-            disablePortal
-            id="combo-box-demo"
-            options={searchedUsersAndGroups}
-            fullWidth
-            onChange={autoCompleteOnChanged}
-            getOptionLabel={(option) => option.label}
-            isOptionEqualToValue={(option, value) => option.value === value.value}
-            renderOption={(props, option) => (
-                <li {...props} key={option.key}>
-                    {option.type === "U" ? "👤" : "👥"} {option.label}
-                </li>
-            )}
-            renderInput={(params) => (
-                <TextField
-                    {...params}
-                    label="Kullanıcı ve Grup Ara"
-                    onChange={searchChanged}
-                />
-            )}
-          />
-        </Grid>
-        <Divider />
-        <Grid style={{ textAlign: "center" }}>
-          <h3>Kullanıcılar ve Gruplar</h3>
-        </Grid>
-        <Divider />
-        <Grid>
-          {usersAndGroups.map((item) => (
-            <Box
-              key={item.id}
-              border="1px solid azure"
-              className={[styles.box, item.isActive ? styles.active : ""]}
-              boxShadow="1"
-              borderRadius={1}
-              margin={1}
-              padding={1}
-              onClick={() => boxClicked(item)}
-            >
-              <Stack spacing={2} direction="row">
-                <h3>{item.type === "U" ? "👤" : "👥"}</h3>
-                <h4>{item.name}</h4>
-              </Stack>
-            </Box>
-          ))}
-        </Grid>
-      </Grid>
-      <Grid xs={9} border="solid" borderRadius={2}>
-        <Grid>
-          <AppBar position="static">
-            <Toolbar>
-              <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-                Menü {connectedUser && connectedUser.username}
-              </Typography>
-              <IconButton
-                size="large"
-                aria-label="account of current user"
-                aria-contols="menu-appbar"
-                aria-haspopup="true"
-                onClick={handleMenu}
-              >
-                <AccountCircle />
-              </IconButton>
-              <Menu
-                id="menu-appbar"
-                anchorOrigin={{ vertical: "top", horizontal: "right" }}
-                keepMounted
-                transformOrigin={{ vertical: "top", horizontal: "top" }}
-                anchorEl={anchorEl}
-                open={Boolean(anchorEl)}
-                onClose={handleClose}
-                role="menu"
-                style={{ top: "50px" }}
-              >
-                <MenuItem onClick={testMessageHandler}>
-                  Test Mesajı Gönder
-                </MenuItem>
-                <MenuItem onClick={handleExit}>Çıkış</MenuItem>
-              </Menu>
-            </Toolbar>
-          </AppBar>
-        </Grid>
-        {selectedUser && (
-          <Grid>
-            <Grid height="86vh">
-              <Box border="1px solid azure" borderRadius={1}>
-                {chatHistoryState.map((item, index) => (
-                  <Box key={index} margin={1}>
-                    <Stack
-                      spacing={2}
-                      direction="row"
-                      justifyContent={
-                        item.type === "S" ? "flex-end" : "flex-start"
-                      }
-                    >
-                      <h3>{item.type}</h3>
-                      <h4>{item.name}</h4>
-                      {selectedUser.type === "G" && (
-                        <small>{item.sender}</small>
-                      )}
-                    </Stack>
-                  </Box>
-                ))}
-              </Box>
-            </Grid>
-            <Grid
-              container
-              spacing={4}
-              marginX={1}
-              alignItems="center"
-              justifyContent="end"
-            >
-              <Grid xs>
-                <TextField
-                  id="txt-message-send"
-                  label="Mesajınızı yazınız"
-                  variant="outlined"
-                  fullWidth
-                  onChange={(e) => setMessage(e.target.value)}
-                  value={message}
-                  onKeyPress={(e) => {
-                    if (e.key === "Enter") {
-                      messageSendHandler();
-                    }
-                  }}
-                />
-              </Grid>
-              <Grid>
-                <Button
-                  variant="contained"
-                  size="large"
-                  color="primary"
-                  fullWidth
-                  onClick={messageSendHandler}
-                >
-                  Gönder
-                </Button>
-              </Grid>
-            </Grid>
-          </Grid>
-        )}
-      </Grid>
-    </Grid>
-  );
+    return (
+        <ThemeProvider theme={darkTheme}>
+            <Container maxWidth={false} disableGutters>
+                <AppBar position="static" elevation={0} color="transparent">
+                    <Toolbar sx={{ borderBottom: 1, borderColor: 'divider' }}>
+                        <Typography variant="h6" component="div" sx={{ flexGrow: 1, color: 'primary.main' }}>
+                            Chat App
+                        </Typography>
+                        {connectedUser && (
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                                <Avatar sx={{ bgcolor: 'primary.dark' }}>
+                                    {connectedUser.name?.charAt(0).toUpperCase()}
+                                </Avatar>
+                                <Typography variant="subtitle1" sx={{ color: 'text.primary' }}>
+                                    {connectedUser.name}
+                                </Typography>
+                                <Tooltip title="Ayarlar">
+                                    <IconButton color="primary">
+                                        <SettingsIcon />
+                                    </IconButton>
+                                </Tooltip>
+                                <Tooltip title="Çıkış Yap">
+                                    <IconButton onClick={handleExit} color="primary">
+                                        <LogoutIcon />
+                                    </IconButton>
+                                </Tooltip>
+                            </Box>
+                        )}
+                    </Toolbar>
+                </AppBar>
+
+                <Grid container sx={{ height: 'calc(100vh - 64px)' }}>
+                    {/* Sol Panel */}
+                    <Grid item xs={3} sx={{ 
+                        borderRight: 1, 
+                        borderColor: 'divider',
+                        backgroundColor: 'background.paper'
+                    }}>
+                        <Box sx={{ p: 2 }}>
+                            <Autocomplete
+                                fullWidth
+                                options={searchedUsersAndGroups}
+                                onChange={autoCompleteOnChanged}
+                                getOptionLabel={(option) => option.label}
+                                renderInput={(params) => (
+                                    <TextField
+                                        {...params}
+                                        placeholder="Ara..."
+                                        variant="outlined"
+                                        size="small"
+                                        onChange={searchChanged}
+                                        InputProps={{
+                                            ...params.InputProps,
+                                            startAdornment: (
+                                                <InputAdornment position="start">
+                                                    <SearchIcon color="primary" />
+                                                </InputAdornment>
+                                            ),
+                                        }}
+                                    />
+                                )}
+                                renderOption={(props, option) => (
+                                    <ListItem {...props}>
+                                        <ListItemAvatar>
+                                            <Avatar sx={{ bgcolor: 'primary.dark' }}>
+                                                {option.type === "U" ? <PersonIcon /> : <GroupIcon />}
+                                            </Avatar>
+                                        </ListItemAvatar>
+                                        <ListItemText 
+                                            primary={option.label}
+                                            secondary={option.type === "U" ? "Kullanıcı" : "Grup"}
+                                        />
+                                    </ListItem>
+                                )}
+                            />
+                        </Box>
+                        <Divider />
+                        <List sx={{ 
+                            overflow: 'auto', 
+                            maxHeight: 'calc(100vh - 180px)',
+                            '&::-webkit-scrollbar': {
+                                width: '8px',
+                            },
+                            '&::-webkit-scrollbar-track': {
+                                background: 'transparent',
+                            },
+                            '&::-webkit-scrollbar-thumb': {
+                                background: 'rgba(33, 150, 243, 0.3)',
+                                borderRadius: '4px',
+                            },
+                        }}>
+                            {usersAndGroups.map((item) => (
+                                <UserListItem
+                                    key={item.key}
+                                    isActive={item.isActive}
+                                    onClick={() => boxClicked(item)}
+                                    button
+                                >
+                                    <ListItemAvatar>
+                                        <Avatar sx={{ bgcolor: item.isActive ? 'primary.main' : 'primary.dark' }}>
+                                            {item.type === "U" ? <PersonIcon /> : <GroupIcon />}
+                                        </Avatar>
+                                    </ListItemAvatar>
+                                    <ListItemText
+                                        primary={item.name}
+                                        secondary={item.type === "U" ? "Kullanıcı" : "Grup"}
+                                        primaryTypographyProps={{
+                                            color: item.isActive ? 'primary' : 'text.primary'
+                                        }}
+                                    />
+                                </UserListItem>
+                            ))}
+                        </List>
+                    </Grid>
+
+                    {/* Sağ Panel */}
+                    <Grid item xs={9} sx={{ backgroundColor: 'background.chat' }}>
+                        <ChatContainer elevation={0}>
+                            {selectedUser && (
+                                <Box sx={{ 
+                                    p: 2, 
+                                    borderBottom: 1, 
+                                    borderColor: 'divider',
+                                    backgroundColor: 'background.paper' 
+                                }}>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                                        <Avatar sx={{ bgcolor: 'primary.dark' }}>
+                                            {selectedUser.type === "U" ? <PersonIcon /> : <GroupIcon />}
+                                        </Avatar>
+                                        <Typography variant="h6">
+                                            {selectedUser.username}
+                                        </Typography>
+                                    </Box>
+                                </Box>
+                            )}
+                            
+                            <MessageList>
+                                {chatHistoryState.map((msg, index) => {
+                                    const isOwn = msg.type === "S" || msg.sender === connectedUser?.username;
+                                    const messageContent = extractMessageContent(msg.name);
+                                    
+                                    return (
+                                        <Box
+                                            key={index}
+                                            sx={{
+                                                display: 'flex',
+                                                flexDirection: 'column',
+                                                alignItems: isOwn ? 'flex-end' : 'flex-start',
+                                                mb: 1
+                                            }}
+                                        >
+                                            <MessageBubble isOwn={isOwn}>
+                                                <Typography variant="body1">
+                                                    {messageContent}
+                                                </Typography>
+                                            </MessageBubble>
+                                        </Box>
+                                    );
+                                })}
+                                <div ref={messagesEndRef} />
+                            </MessageList>
+
+                            <Box sx={{ p: 2, backgroundColor: 'background.paper' }}>
+                                <TextField
+                                    fullWidth
+                                    value={message}
+                                    onChange={(e) => setMessage(e.target.value)}
+                                    placeholder="Mesajınızı yazın..."
+                                    variant="outlined"
+                                    size="small"
+                                    onKeyPress={(e) => e.key === 'Enter' && messageSendHandler()}
+                                    InputProps={{
+                                        endAdornment: (
+                                            <InputAdornment position="end">
+                                                <IconButton onClick={messageSendHandler} color="primary">
+                                                    <SendIcon />
+                                                </IconButton>
+                                            </InputAdornment>
+                                        ),
+                                    }}
+                                />
+                            </Box>
+                        </ChatContainer>
+                    </Grid>
+                </Grid>
+            </Container>
+        </ThemeProvider>
+    );
 }

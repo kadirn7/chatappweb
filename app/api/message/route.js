@@ -89,51 +89,45 @@ export async function POST(req) {
     }
 
     try {
-        const body = await req.json();
-        const { content, receiverUsername, groupName } = body;
+        const messageData = await req.json();
+        console.log("Received message data:", messageData); // Debug için
 
-        const messageData = {
-            content,
-            senderUsername: token.user.username,
-            ...(groupName 
-                ? { 
-                    groupName,
-                    messageType: "G"
-                } 
-                : { 
-                    receiverUsername,
-                    messageType: "P"
-                })
-        };
+        // API endpoint'ini düzelt
+        const response = await fetch(`${process.env.API_URL}/Message`, {
+            method: 'POST',
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token.user.apiToken}`,
+            },
+            body: JSON.stringify({
+                content: messageData.content,
+                senderUsername: messageData.senderUsername,
+                receiverUsername: messageData.receiverUsername,
+                groupId: messageData.groupId,
+                messageType: messageData.messageType,
+                isDeleted: false,
+                createdAt: new Date().toISOString()
+            })
+        });
 
-        console.log("Sending message data:", messageData); // Debug için
-
-        const result = await fetch(
-            `${process.env.API_URL}/message/SendMessage`,
-            {
-                method: 'POST',
-                headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${token.user.apiToken}`,
-                },
-                body: JSON.stringify(messageData)
-            }
-        );
-
-        if (!result.ok) {
-            const errorData = await result.json();
-            console.error("API Error:", errorData); // Debug için
+        if (!response.ok) {
+            const error = await response.json();
+            console.error("API Error Response:", error); // Debug için
             return NextResponse.json(
-                { error: errorData.message || "Failed to send message" },
-                { status: result.status }
+                { error: error.message || "Failed to send message" },
+                { status: response.status }
             );
         }
 
-        const data = await result.json();
+        const data = await response.json();
+        console.log("API Success Response:", data); // Debug için
         return NextResponse.json(data);
 
     } catch (error) {
-        console.error("Error in POST /api/message:", error);
-        return NextResponse.json({ error: "An error occurred" }, { status: 500 });
+        console.error("Error in message POST:", error);
+        return NextResponse.json(
+            { error: "An error occurred while sending message" },
+            { status: 500 }
+        );
     }
 }
