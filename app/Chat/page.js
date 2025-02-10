@@ -49,9 +49,9 @@ const ChatContainer = styled(Paper)(({ theme }) => ({
 
 const MessageList = styled(Box)(({ theme }) => ({
     flexGrow: 1,
-    overflow: "auto",
+    overflow: 'auto',
     padding: theme.spacing(2),
-    backgroundColor: '#121212',
+    backgroundColor: theme.palette.background.chat,
     '&::-webkit-scrollbar': {
         width: '6px',
     },
@@ -72,16 +72,20 @@ const MessageBubble = styled(Paper)(({ theme, isOwn }) => ({
     backgroundColor: isOwn ? '#0B93F6' : theme.palette.background.paper,
     color: isOwn ? '#fff' : theme.palette.text.primary,
     alignSelf: isOwn ? "flex-end" : "flex-start",
-    borderRadius: isOwn ? '1.3em' : '1.3em',
+    borderRadius: isOwn ? '1.3em 1.3em 0.3em 1.3em' : '1.3em 1.3em 1.3em 0.3em',
     boxShadow: 'none',
-    '&:first-of-type': {
-        borderTopRightRadius: isOwn ? '1.3em' : '1.3em',
-        borderTopLeftRadius: '1.3em',
-    },
-    '&:last-of-type': {
-        borderBottomRightRadius: '1.3em',
-        borderBottomLeftRadius: isOwn ? '1.3em' : '1.3em',
-    },
+    position: 'relative',
+    '&:after': {
+        content: '""',
+        position: 'absolute',
+        bottom: 0,
+        [isOwn ? 'right' : 'left']: -8,
+        width: 20,
+        height: 20,
+        backgroundColor: isOwn ? '#0B93F6' : theme.palette.background.paper,
+        borderRadius: '50%',
+        zIndex: -1,
+    }
 }));
 
 const UserListItem = styled(ListItem)(({ theme, isActive }) => ({
@@ -115,31 +119,16 @@ export default function Page() {
         scrollToBottom();
     }, [chatHistoryState]);
 
-    const checkAndSetSession = async () => {
-        try {
-            const sess = await getSession();
-            console.log("Current session:", sess); // Debug için
-
-            if (!sess || !sess.user?.apiToken) {
-                console.log("No valid session found, redirecting to login");
-                window.location.href = "/login";
-                return false;
-            }
-
-            setSession(sess);
-            setConnectedUser(sess.user);
-            return true;
-        } catch (error) {
-            console.error("Session check error:", error);
-            return false;
-        }
-    };
-
     useEffect(() => {
         const initialize = async () => {
-            const hasValidSession = await checkAndSetSession();
-            if (hasValidSession) {
-                startConnection(session.user.apiToken);
+            const sess = await getSession();
+            if (sess?.user?.apiToken) {
+                setSession(sess);
+                setConnectedUser(sess.user);
+                await startConnection(sess.user.apiToken);
+                await fetchLastMessages();
+            } else {
+                window.location.href = "/login";
             }
         };
 
@@ -363,74 +352,99 @@ export default function Page() {
             .catch((err) => console.error(err));
     }
 
-    // Mesaj içeriğini ayıklama fonksiyonu
-    const extractMessageContent = (fullMessage) => {
-        // Mesajı ve tarih/saat bilgisini ayır
-        const parts = fullMessage.split(' ');
-        // Sadece mesaj içeriğini döndür (son parçayı at)
-        return parts.slice(0, -1).join(' ');
-    };
-
     async function messageSendHandler() {
         if (!selectedUser || !message.trim()) return;
         
         try {
             // API üzerinden mesajı veritabanına kaydetme
-            const messageData = {
-                content: message,
-                senderUsername: connectedUser.username,
-                receiverUsername: selectedUser.type === "G" ? null : selectedUser.username,
-                groupId: selectedUser.type === "G" ? selectedUser.value : null,
-                messageType: selectedUser.type === "G" ? "G" : "P"
-            };
-
-            console.log("Sending message data:", messageData); // Debug için
-
             const response = await fetch('/api/message', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${session?.user?.apiToken}`
+                    'Authorization': `Bearer ${session.user.apiToken}`
                 },
-                body: JSON.stringify(messageData)
+                body: JSON.stringify({
+                    content: message,
+                    ...(selectedUser.type === "G" 
+                        ? { groupName: selectedUser.username }
+                        : { receiverUsername: selectedUser.username }
+                    )
+                })
             });
 
             if (!response.ok) {
-                const errorData = await response.json();
-                console.error("API Error:", errorData);
-                throw new Error(errorData.error || 'Mesaj gönderilemedi');
+                throw new Error('Failed to save message');
             }
 
             // SignalR üzerinden real-time mesaj gönderme
-            try {
-                if (selectedUser.type === "G") {
-                    await connection.invoke("SendMessageToGroup", selectedUser.username, message);
-                } else {
-                    await connection.invoke("SendMessageToUser", selectedUser.username, message);
-                }
-            } catch (signalRError) {
-                console.error("SignalR Error:", signalRError);
-                // SignalR hatası olsa bile devam et
+            if (selectedUser.type === "G") {
+                await connection.invoke("SendMessageToGroup", selectedUser.username, message);
+            } else {
+                await connection.invoke("SendMessageToUser", selectedUser.username, message);
             }
 
-            // UI güncelleme
-            const newMessage = {
-                id: chatHistoryState.length + 1,
-                type: "S",
-                name: message, // Sadece mesaj içeriği
-                sender: connectedUser.username,
-                receiver: selectedUser.username
-            };
-
-            dispatch(setChatHistory([...chatHistoryState, newMessage]));
+            // UI'ı güncelle
+            dispatch(
+                setChatHistory([
+                    ...chatHistoryState,
+                    {
+                        id: chatHistoryState.length + 1,
+                        type: "S", // Her zaman gönderen olarak işaretle
+                        name: message,
+                        sender: session.user.username,
+                        receiver: selectedUser.username
+                    }
+                ])
+            );
+            
             setMessage("");
-
         } catch (err) {
             console.error("Error sending message:", err);
-            alert(err.message || "Mesaj gönderilirken bir hata oluştu");
+            alert("Mesaj gönderilemedi");
         }
     }
-    
+
+    // Son mesajlaşılan kullanıcıları getir
+    const fetchLastMessages = async () => {
+        try {
+            const response = await fetch('/api/message/lastMessages', {
+                headers: {
+                    "Authorization": `Bearer ${session?.user?.apiToken}`
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to fetch recent messages');
+            }
+
+            const data = await response.json();
+            console.log("Last messages data:", data); // Debug için
+
+            if (data.success && Array.isArray(data.data)) {
+                const formattedUsers = data.data.map(user => ({
+                    id: user.id,
+                    name: user.name,
+                    username: user.username,
+                    type: "U",
+                    isActive: false,
+                    lastMessage: user.lastMessage,
+                    key: `user_${user.id}`
+                }));
+
+                setUsersAndGroups(formattedUsers);
+            }
+        } catch (error) {
+            console.error('Error fetching last messages:', error);
+        }
+    };
+
+    // Session yüklendiğinde son mesajları getir
+    useEffect(() => {
+        if (session?.user?.apiToken) {
+            fetchLastMessages();
+        }
+    }, [session]);
+
     return (
         <ThemeProvider theme={darkTheme}>
             <Container maxWidth={false} disableGutters>
@@ -524,7 +538,7 @@ export default function Page() {
                         }}>
                             {usersAndGroups.map((item) => (
                                 <UserListItem
-                                    key={item.key}
+                                    key={item.id}
                                     isActive={item.isActive}
                                     onClick={() => boxClicked(item)}
                                     button
@@ -536,7 +550,20 @@ export default function Page() {
                                     </ListItemAvatar>
                                     <ListItemText
                                         primary={item.name}
-                                        secondary={item.type === "U" ? "Kullanıcı" : "Grup"}
+                                        secondary={
+                                            <Typography
+                                                variant="body2"
+                                                noWrap
+                                                sx={{
+                                                    color: 'text.secondary',
+                                                    maxWidth: '200px',
+                                                    overflow: 'hidden',
+                                                    textOverflow: 'ellipsis'
+                                                }}
+                                            >
+                                                {item.lastMessage || (item.type === "U" ? "Kullanıcı" : "Grup")}
+                                            </Typography>
+                                        }
                                         primaryTypographyProps={{
                                             color: item.isActive ? 'primary' : 'text.primary'
                                         }}
@@ -568,28 +595,27 @@ export default function Page() {
                             )}
                             
                             <MessageList>
-                                {chatHistoryState.map((msg, index) => {
-                                    const isOwn = msg.type === "S" || msg.sender === connectedUser?.username;
-                                    const messageContent = extractMessageContent(msg.name);
-                                    
-                                    return (
-                                        <Box
-                                            key={index}
-                                            sx={{
-                                                display: 'flex',
-                                                flexDirection: 'column',
-                                                alignItems: isOwn ? 'flex-end' : 'flex-start',
-                                                mb: 1
-                                            }}
-                                        >
-                                            <MessageBubble isOwn={isOwn}>
-                                                <Typography variant="body1">
-                                                    {messageContent}
-                                                </Typography>
-                                            </MessageBubble>
-                                        </Box>
-                                    );
-                                })}
+                                {chatHistoryState.map((msg, index) => (
+                                    <Box
+                                        key={index}
+                                        sx={{
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            alignItems: msg.type === "S" ? 'flex-end' : 'flex-start',
+                                            mb: 1.5
+                                        }}
+                                    >
+                                        <MessageBubble isOwn={msg.type === "S"}>
+                                            <Typography variant="body1" sx={{ 
+                                                fontSize: '0.9375rem',
+                                                lineHeight: 1.4,
+                                                whiteSpace: 'pre-wrap'
+                                            }}>
+                                                {msg.name}
+                                            </Typography>
+                                        </MessageBubble>
+                                    </Box>
+                                ))}
                                 <div ref={messagesEndRef} />
                             </MessageList>
 
